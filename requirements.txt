@@ -1,10 +1,7 @@
+streamlit
 python-dotenv
 requests
 langchain
+langchain-google-genai
 google-generativeai
-elevenlabs
-speechrecognition
-pydub
-openai
-python-weather
-requests
+

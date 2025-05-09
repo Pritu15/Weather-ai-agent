@@ -1,143 +1,130 @@
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.agents import initialize_agent, AgentType
+from langchain.agents import Tool
 import requests
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.output_parsers import StrOutputParser
 from config import Config
 
 class WeatherAgent:
     def __init__(self):
         self.llm = self._initialize_llm()
-        self.prompt_template = self._create_prompt_template()
+        self.agent = self._initialize_agent()
         
     def _initialize_llm(self):
-        if Config.LLM_PROVIDER == "gemini":
-            return ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash",
-                temperature=0.7,
-                google_api_key=Config.GEMINI_API_KEY
+        return ChatGoogleGenerativeAI(
+            model=Config.LLM_MODEL,
+            temperature=Config.LLM_TEMPERATURE,
+            google_api_key=Config.GEMINI_API_KEY,
+            convert_system_message_to_human=True
+        )
+    
+    def _initialize_agent(self):
+        weather_tool = Tool(
+            name="GetWeather",
+            func=self.get_weather_tool,
+            description=(
+                "Useful for getting weather information. "
+                "Input should be in format 'location, date' where date is 'today' or 'tomorrow'. "
+                "Example: 'New York, today'"
             )
-        else:
-            raise ValueError("Invalid LLM provider specified in config")
-            
-    def _create_prompt_template(self):
-        return ChatPromptTemplate.from_messages([
-            ("system", """You are a friendly weather assistant. Provide accurate, concise weather information based on the data provided.
-             For questions about yesterday, today, or tomorrow, use the available weather data.
-             For metaphorical questions like "rain cats and dogs", interpret them as asking about heavy rain.
-             If you don't have data for a specific request, say so politely.
-             Keep responses under 2 sentences unless more detail is explicitly requested."""),
-            ("human", "{query}"),
-            ("ai", "{weather_data}"),
-            ("human", "Based on the above, answer this weather query: {user_query}")
-        ])
+        )
         
-    def get_weather_data(self, location: str, date: str) -> Optional[Dict[str, Any]]:
-        """Fetch weather data for a location and date"""
-        base_url = Config.WEATHER_BASE_URL
-        
-        try:
-            if date == "today":
-                url = f"{base_url}/weather?q={location}&appid={Config.WEATHER_API_KEY}&units=metric"
-                response = requests.get(url)
-                data = response.json()
-                return self._process_current_weather(data)
-                
-            elif date == "tomorrow":
-                url = f"{base_url}/forecast?q={location}&appid={Config.WEATHER_API_KEY}&units=metric&cnt=8"
-                response = requests.get(url)
-                data = response.json()
-                return self._process_forecast(data, days_ahead=1)
-                
-            elif date == "yesterday":
-                # Historical data requires paid plan in OpenWeatherMap
-                # For demo purposes, we'll return None
-                return None
-                
-            else:
-                return None
-                
-        except requests.RequestException:
-            return None
-            
-    def _process_current_weather(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Process current weather data from API"""
-        if data.get("cod") != 200:
-            return None
-            
-        return {
-            "location": data.get("name", "Unknown location"),
-            "temperature": data["main"]["temp"],
-            "feels_like": data["main"]["feels_like"],
-            "humidity": data["main"]["humidity"],
-            "weather": data["weather"][0]["main"],
-            "description": data["weather"][0]["description"],
-            "wind_speed": data["wind"]["speed"],
-            "date": datetime.fromtimestamp(data["dt"]).strftime("%Y-%m-%d")
+        return initialize_agent(
+            tools=[weather_tool],
+            llm=self.llm,
+            agent_type=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
+            verbose=True,
+            max_iterations=3,
+            handle_parsing_errors=True
+        )
+    
+    def get_current_weather(self, location: str) -> dict:
+        """Get current weather data for a location"""
+        url = f"{Config.WEATHER_BASE_URL}/weather"
+        params = {
+            "q": location,
+            "appid": Config.OPENWEATHER_API_KEY,
+            "units": "metric"
         }
         
-    def _process_forecast(self, data: Dict[str, Any], days_ahead: int = 1) -> Optional[Dict[str, Any]]:
-        """Process forecast data from API"""
-        if data.get("cod") != "200":
+        try:
+            response = requests.get(url, params=params)
+            return response.json() if response.status_code == 200 else None
+        except requests.RequestException:
             return None
+    
+    def get_weather_forecast(self, location: str) -> dict:
+        """Get weather forecast for a location"""
+        url = f"{Config.WEATHER_BASE_URL}/forecast"
+        params = {
+            "q": location,
+            "appid": Config.OPENWEATHER_API_KEY,
+            "units": "metric",
+            "cnt": Config.FORECAST_CNT
+        }
+        
+        try:
+            response = requests.get(url, params=params)
+            return response.json() if response.status_code == 200 else None
+        except requests.RequestException:
+            return None
+    
+    def process_weather_data(self, data: dict, date: str = "today") -> str:
+        """Process weather data into human-readable format"""
+        if not data:
+            return "Could not retrieve weather data."
+        
+        if date == "today":
+            weather = data["weather"][0]
+            main = data["main"]
+            wind = data["wind"]
             
-        # Get forecast for the specified day ahead
-        target_date = (datetime.now() + timedelta(days=days_ahead)).date()
+            return (
+                f"Weather in {data.get('name', 'Unknown location')}:\n"
+                f"- Condition: {weather['description'].capitalize()}\n"
+                f"- Temperature: {main['temp']}°C (feels like {main['feels_like']}°C)\n"
+                f"- Humidity: {main['humidity']}%\n"
+                f"- Wind: {wind['speed']} m/s"
+            )
+        else:  # For forecast data
+            target_date = (datetime.now() + timedelta(days=1)).date()
+            for item in data["list"]:
+                if datetime.fromtimestamp(item["dt"]).date() == target_date:
+                    weather = item["weather"][0]
+                    main = item["main"]
+                    wind = item["wind"]
+                    
+                    return (
+                        f"Weather forecast for {data['city']['name']} tomorrow:\n"
+                        f"- Condition: {weather['description'].capitalize()}\n"
+                        f"- Temperature: {main['temp']}°C (feels like {main['feels_like']}°C)\n"
+                        f"- Humidity: {main['humidity']}%\n"
+                        f"- Wind: {wind['speed']} m/s"
+                    )
+            return "No forecast data available for tomorrow."
+    
+    def get_weather_tool(self, input_str: str) -> str:
+        """Tool function for the agent to get weather data"""
+        parts = [p.strip() for p in input_str.split(",")]
+        if len(parts) != 2:
+            return "Please specify both location and date (today or tomorrow)"
         
-        for item in data["list"]:
-            item_date = datetime.fromtimestamp(item["dt"]).date()
-            if item_date == target_date:
-                return {
-                    "location": data["city"]["name"],
-                    "temperature": item["main"]["temp"],
-                    "feels_like": item["main"]["feels_like"],
-                    "humidity": item["main"]["humidity"],
-                    "weather": item["weather"][0]["main"],
-                    "description": item["weather"][0]["description"],
-                    "wind_speed": item["wind"]["speed"],
-                    "date": item_date.strftime("%Y-%m-%d"),
-                    "time": datetime.fromtimestamp(item["dt"]).strftime("%H:%M")
-                }
-                
-        return None
+        location, date = parts
+        date = date.lower()
         
-    def analyze_query(self, query: str) -> Dict[str, str]:
-        """Analyze the user query to extract location and date"""
-        # Simple analysis - in a real app you'd use more sophisticated NLP
-        query_lower = query.lower()
-        location = Config.DEFAULT_LOCATION
-        date = "today"
+        if date not in ["today", "tomorrow"]:
+            return "Date must be either 'today' or 'tomorrow'"
         
-        if "tomorrow" in query_lower:
-            date = "tomorrow"
-        elif "yesterday" in query_lower:
-            date = "yesterday"
-            
-        # Simple location detection (very basic)
-        location_keywords = ["in ", "at ", "for "]
-        for keyword in location_keywords:
-            if keyword in query_lower:
-                start_idx = query_lower.find(keyword) + len(keyword)
-                location = query[start_idx:].split()[0]
-                break
-                
-        return {"location": location, "date": date}
+        if date == "today":
+            data = self.get_current_weather(location)
+        else:  # tomorrow
+            data = self.get_weather_forecast(location)
         
-    def generate_response(self, query: str) -> str:
-        """Generate a weather response for the given query"""
-        analysis = self.analyze_query(query)
-        weather_data = self.get_weather_data(analysis["location"], analysis["date"])
-        
-        if not weather_data:
-            return "Sorry, I couldn't retrieve weather data for that request."
-            
-        chain = self.prompt_template | self.llm | StrOutputParser()
-        
-        response = chain.invoke({
-            "query": f"What's the weather like in {analysis['location']} on {analysis['date']}?",
-            "weather_data": str(weather_data),
-            "user_query": query
-        })
-        
-        return response
+        return self.process_weather_data(data, date)
+    
+    def run(self, prompt: str) -> str:
+        """Run the agent with the given prompt"""
+        try:
+            return self.agent.run(prompt)
+        except Exception as e:
+            return f"Sorry, I encountered an error: {str(e)}"

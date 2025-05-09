@@ -1,35 +1,38 @@
+import streamlit as st
 from weather_agent import WeatherAgent
-from voice_processor import VoiceProcessor
-import argparse
 
 def main():
-    parser = argparse.ArgumentParser(description="Weather AI Agent")
-    parser.add_argument("--voice", action="store_true", help="Enable voice input/output")
-    args = parser.parse_args()
+    # Initialize the agent
+    weather_agent = WeatherAgent()
     
-    agent = WeatherAgent()
-    voice_processor = VoiceProcessor() if args.voice else None
+    # Streamlit UI Configuration
+    st.set_page_config(page_title="Weather AI Assistant", page_icon="🌦️")
+    st.title("🌦️ Weather AI Assistant")
     
-    print("Weather AI Agent - Type 'exit' to quit")
+    # Initialize chat history
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
     
-    while True:
-        if args.voice:
-            print("\nSpeak your weather query...")
-            query = voice_processor.listen()
-            if query is None:
-                continue
-        else:
-            query = input("\nEnter your weather query: ")
-            
-        if query.lower() == "exit":
-            break
-            
-        response = agent.generate_response(query)
+    # Display chat messages
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+    
+    # Chat input
+    if prompt := st.chat_input("Ask about the weather..."):
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
         
-        print(f"\nResponse: {response}")
+        # Get agent response
+        with st.spinner("Checking weather..."):
+            response = weather_agent.run(prompt)
         
-        if args.voice:
-            voice_processor.speak(response)
-            
+        # Add assistant response to chat history
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        with st.chat_message("assistant"):
+            st.markdown(response)
+
 if __name__ == "__main__":
     main()
