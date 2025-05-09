@@ -2,7 +2,7 @@
 
 1. Clone the repository:
     ```bash
-    git clone https://github.com/your-username/Weather-ai-agent.git
+    git clone https://github.com/pritu15/Weather-ai-agent.git
     cd Weather-ai-agent
     ```
 
@@ -13,7 +13,7 @@
 
 3. Run the application:
     ```bash
-    python main.py
+    python app.py
     ```
 
 4. Follow the on-screen instructions to interact with the Weather AI Agent.
