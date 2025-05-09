@@ -1,0 +1,10 @@
+python-dotenv
+requests
+langchain
+google-generativeai
+elevenlabs
+speechrecognition
+pydub
+openai
+python-weather
+requests
