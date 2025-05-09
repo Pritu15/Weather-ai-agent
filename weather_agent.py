@@ -24,7 +24,7 @@ class WeatherAgent:
             func=self.get_weather_tool,
             description=(
                 "Useful for getting weather information. "
-                "Input should be in format 'location, date' where date is 'today' or 'tomorrow'. "
+                "Input should be in format 'location, date' where date is 'today', 'tomorrow'or'yesterday'. "
                 "Example: 'New York, today'"
             )
         )
@@ -69,26 +69,117 @@ class WeatherAgent:
         except requests.RequestException:
             return None
     
-    def process_weather_data(self, data: dict, date: str = "today") -> str:
+
+    def get_yesterdays_weather(self, location: str) -> dict:
+        """Get yesterday's weather data for a location
+                
+                Args:
+                    location: City name (e.g., "New York") or "city,country code"
+                
+                Returns:
+                    Dictionary containing historical weather data or None if request fails
+        """
+        # First get coordinates for the location
+        geocode_url = f"{Config.WEATHER_BASE_URL}/weather"
+        geocode_params = {
+            "q": location,
+            "appid": Config.OPENWEATHER_API_KEY
+        }
+        
+        try:
+            # Get coordinates for the location
+            geo_response = requests.get(geocode_url, params=geocode_params)
+            if geo_response.status_code != 200:
+                return None
+                
+            geo_data = geo_response.json()
+            lat = geo_data['coord']['lat']
+            lon = geo_data['coord']['lon']
+            
+            # Calculate yesterday's date range (00:00-23:59)
+            now = datetime.now()
+            yesterday = now - timedelta(days=1)
+            
+            start = int(datetime(yesterday.year, yesterday.month, yesterday.day, 0, 0).timestamp())
+            end = int(datetime(yesterday.year, yesterday.month, yesterday.day, 23, 59).timestamp())
+            
+            # Get historical data
+            history_url = f"{Config.WEATHER_BASE_URL}/history/city"
+            history_params = {
+                "lat": lat,
+                "lon": lon,
+                "type": "hour",
+                "start": start,
+                "end": end,
+                "appid": Config.OPENWEATHER_API_KEY,
+                "units": "metric"
+            }
+            
+            history_response = requests.get(history_url, params=history_params)
+            return history_response.json() if history_response.status_code == 200 else None
+        
+        except (requests.RequestException, KeyError) as e:
+            print(f"Error getting historical data: {str(e)}")
+            return None
+
+
+    def process_weather_data(self, data: dict, date: str = "today", hours_offset: int = 0) -> str:
         """Process weather data into human-readable format"""
         if not data:
             return "Could not retrieve weather data."
         
         if date == "today":
-            weather = data["weather"][0]
-            main = data["main"]
-            wind = data["wind"]
+            print("****************dfsaisafiluagfliug*****************")
+            if hours_offset == 0:
+                weather = data["weather"][0]
+                main = data["main"]
+                wind = data["wind"]
+                
+                return (
+                    f"Weather in {data.get('name', 'Unknown location')}:\n"
+                    f"- Condition: {weather['description'].capitalize()}\n"
+                    f"- Temperature: {main['temp']}°C (feels like {main['feels_like']}°C)\n"
+                    f"- Humidity: {main['humidity']}%\n"
+                    f"- Wind: {wind['speed']} m/s"
+                )
+            else:
+                target_time = datetime.now() + timedelta(hours=hours_offset)
+                for item in data.get("list", []):
+                    if datetime.fromtimestamp(item["dt"]) == target_time:
+                        weather = item["weather"][0]
+                        main = item["main"]
+                        wind = item["wind"]
+                        
+                        return (
+                            f"Weather in {data['city']['name']} at {target_time.strftime('%Y-%m-%d %H:%M')}:\n"
+                            f"- Condition: {weather['description'].capitalize()}\n"
+                            f"- Temperature: {main['temp']}°C (feels like {main['feels_like']}°C)\n"
+                            f"- Humidity: {main['humidity']}%\n"
+                            f"- Wind: {wind['speed']} m/s"
+                        )
+                return "No weather data available for the specified time."
+        
+        elif date == "yesterday":
             
-            return (
-                f"Weather in {data.get('name', 'Unknown location')}:\n"
-                f"- Condition: {weather['description'].capitalize()}\n"
-                f"- Temperature: {main['temp']}°C (feels like {main['feels_like']}°C)\n"
-                f"- Humidity: {main['humidity']}%\n"
-                f"- Wind: {wind['speed']} m/s"
-            )
-        else:  # For forecast data
+            target_date = (datetime.now() - timedelta(days=1)).date()
+            for item in data.get("list", []):
+                if datetime.fromtimestamp(item["dt"]).date() == target_date:
+                    weather = item["weather"][0]
+                    main = item["main"]
+                    wind = item["wind"]
+                    
+                    return (
+                        f"Weather for {data['city']['name']} yesterday:\n"
+                        f"- Condition: {weather['description'].capitalize()}\n"
+                        f"- Temperature: {main['temp']}°C (feels like {main['feels_like']}°C)\n"
+                        f"- Humidity: {main['humidity']}%\n"
+                        f"- Wind: {wind['speed']} m/s"
+                    )
+            return "No weather data available for yesterday."
+        
+        else:  # For forecast data (e.g., tomorrow)
             target_date = (datetime.now() + timedelta(days=1)).date()
-            for item in data["list"]:
+            for item in data.get("list", []):
                 if datetime.fromtimestamp(item["dt"]).date() == target_date:
                     weather = item["weather"][0]
                     main = item["main"]
@@ -102,7 +193,6 @@ class WeatherAgent:
                         f"- Wind: {wind['speed']} m/s"
                     )
             return "No forecast data available for tomorrow."
-    
     def get_weather_tool(self, input_str: str) -> str:
         """Tool function for the agent to get weather data"""
         parts = [p.strip() for p in input_str.split(",")]
@@ -112,11 +202,13 @@ class WeatherAgent:
         location, date = parts
         date = date.lower()
         
-        if date not in ["today", "tomorrow"]:
+        if date not in ["today", "tomorrow","yesterday"]:
             return "Date must be either 'today' or 'tomorrow'"
         
         if date == "today":
             data = self.get_current_weather(location)
+        elif date == "yesterday":
+            data = self.get_yesterdays_weather(location)
         else:  # tomorrow
             data = self.get_weather_forecast(location)
         

@@ -6,8 +6,8 @@ def main():
     weather_agent = WeatherAgent()
     
     # Streamlit UI Configuration
-    st.set_page_config(page_title="Weather AI Assistant", page_icon="🌦️")
-    st.title("🌦️ Weather AI Assistant")
+    st.set_page_config(page_title="Megher Basha", page_icon="🌦️")
+    st.title("🌦️ Megher Vasha")
     
     # Initialize chat history
     if "messages" not in st.session_state:
