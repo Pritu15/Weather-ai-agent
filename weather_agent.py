@@ -48,7 +48,7 @@ class WeatherAgent:
             llm=self.llm,
             agent_type=AgentType.STRUCTURED_CHAT_ZERO_SHOT_REACT_DESCRIPTION,
             verbose=True,
-            max_iterations=3,
+            max_iterations=5,
             handle_parsing_errors=True
         )
     
