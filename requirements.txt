@@ -4,4 +4,8 @@ requests
 langchain
 langchain-google-genai
 google-generativeai
+textblob
+nltk
 
+
+    

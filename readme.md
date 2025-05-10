@@ -6,14 +6,25 @@
     cd Weather-ai-agent
     ```
 
-2. Install the required dependencies:
+2. Create and activate a virtual environment:
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+    ```
+
+3. Install the required dependencies:
     ```bash
     pip install -r requirements.txt
     ```
 
-3. Run the application:
+4. Create a `.env` file and add your API keys:
+    ```bash
+    echo "API_KEY=your_api_key_here" > .env
+    ```
+
+5. Run the application:
     ```bash
     python app.py
     ```
 
-4. Follow the on-screen instructions to interact with the Weather AI Agent.
+6. Follow the on-screen instructions to interact with the Weather AI Agent.

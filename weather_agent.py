@@ -1,15 +1,29 @@
+from database import WeatherHistoryDB
+from textblob import TextBlob
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.agents import initialize_agent, AgentType
 from langchain.agents import Tool
-import requests
-from datetime import datetime, timedelta
 from config import Config
+from weather_functions import WeatherFunctions
+import nltk
+from datetime import datetime
 
 class WeatherAgent:
     def __init__(self):
         self.llm = self._initialize_llm()
         self.agent = self._initialize_agent()
-        
+        self.db = WeatherHistoryDB()
+        self._setup_nltk()
+
+    def _setup_nltk(self):
+        try:
+            nltk.data.find('tokenizers/punkt')
+            nltk.data.find('taggers/averaged_perceptron_tagger')
+        except LookupError:
+            nltk.download('punkt')
+            nltk.download('averaged_perceptron_tagger')
+
+    # ... [keep existing initialization methods] ...
     def _initialize_llm(self):
         return ChatGoogleGenerativeAI(
             model=Config.LLM_MODEL,
@@ -38,185 +52,106 @@ class WeatherAgent:
             handle_parsing_errors=True
         )
     
-    def get_current_weather(self, location: str) -> dict:
-        """Get current weather data for a location"""
-        url = f"{Config.WEATHER_BASE_URL}/weather"
-        params = {
-            "q": location,
-            "appid": Config.OPENWEATHER_API_KEY,
-            "units": "metric"
-        }
-        
-        try:
-            response = requests.get(url, params=params)
-            return response.json() if response.status_code == 200 else None
-        except requests.RequestException:
-            return None
-    
-    def get_weather_forecast(self, location: str) -> dict:
-        """Get weather forecast for a location"""
-        url = f"{Config.WEATHER_BASE_URL}/forecast"
-        params = {
-            "q": location,
-            "appid": Config.OPENWEATHER_API_KEY,
-            "units": "metric",
-            "cnt": Config.FORECAST_CNT
-        }
-        
-        try:
-            response = requests.get(url, params=params)
-            return response.json() if response.status_code == 200 else None
-        except requests.RequestException:
-            return None
-    
 
-    def get_yesterdays_weather(self, location: str) -> dict:
-        """Get yesterday's weather data for a location
-                
-                Args:
-                    location: City name (e.g., "New York") or "city,country code"
-                
-                Returns:
-                    Dictionary containing historical weather data or None if request fails
-        """
-        # First get coordinates for the location
-        geocode_url = f"{Config.WEATHER_BASE_URL}/weather"
-        geocode_params = {
-            "q": location,
-            "appid": Config.OPENWEATHER_API_KEY
-        }
-        
-        try:
-            # Get coordinates for the location
-            geo_response = requests.get(geocode_url, params=geocode_params)
-            if geo_response.status_code != 200:
-                return None
-                
-            geo_data = geo_response.json()
-            lat = geo_data['coord']['lat']
-            lon = geo_data['coord']['lon']
-            
-            # Calculate yesterday's date range (00:00-23:59)
-            now = datetime.now()
-            yesterday = now - timedelta(days=1)
-            
-            start = int(datetime(yesterday.year, yesterday.month, yesterday.day, 0, 0).timestamp())
-            end = int(datetime(yesterday.year, yesterday.month, yesterday.day, 23, 59).timestamp())
-            
-            # Get historical data
-            history_url = f"{Config.WEATHER_BASE_URL}/history/city"
-            history_params = {
-                "lat": lat,
-                "lon": lon,
-                "type": "hour",
-                "start": start,
-                "end": end,
-                "appid": Config.OPENWEATHER_API_KEY,
-                "units": "metric"
-            }
-            
-            history_response = requests.get(history_url, params=history_params)
-            return history_response.json() if history_response.status_code == 200 else None
-        
-        except (requests.RequestException, KeyError) as e:
-            print(f"Error getting historical data: {str(e)}")
-            return None
-
-
-    def process_weather_data(self, data: dict, date: str = "today", hours_offset: int = 0) -> str:
-        """Process weather data into human-readable format"""
-        if not data:
-            return "Could not retrieve weather data."
-        
-        if date == "today":
-            print("****************dfsaisafiluagfliug*****************")
-            if hours_offset == 0:
-                weather = data["weather"][0]
-                main = data["main"]
-                wind = data["wind"]
-                
-                return (
-                    f"Weather in {data.get('name', 'Unknown location')}:\n"
-                    f"- Condition: {weather['description'].capitalize()}\n"
-                    f"- Temperature: {main['temp']}°C (feels like {main['feels_like']}°C)\n"
-                    f"- Humidity: {main['humidity']}%\n"
-                    f"- Wind: {wind['speed']} m/s"
-                )
-            else:
-                target_time = datetime.now() + timedelta(hours=hours_offset)
-                for item in data.get("list", []):
-                    if datetime.fromtimestamp(item["dt"]) == target_time:
-                        weather = item["weather"][0]
-                        main = item["main"]
-                        wind = item["wind"]
-                        
-                        return (
-                            f"Weather in {data['city']['name']} at {target_time.strftime('%Y-%m-%d %H:%M')}:\n"
-                            f"- Condition: {weather['description'].capitalize()}\n"
-                            f"- Temperature: {main['temp']}°C (feels like {main['feels_like']}°C)\n"
-                            f"- Humidity: {main['humidity']}%\n"
-                            f"- Wind: {wind['speed']} m/s"
-                        )
-                return "No weather data available for the specified time."
-        
-        elif date == "yesterday":
-            
-            target_date = (datetime.now() - timedelta(days=1)).date()
-            for item in data.get("list", []):
-                if datetime.fromtimestamp(item["dt"]).date() == target_date:
-                    weather = item["weather"][0]
-                    main = item["main"]
-                    wind = item["wind"]
-                    
-                    return (
-                        f"Weather for {data['city']['name']} yesterday:\n"
-                        f"- Condition: {weather['description'].capitalize()}\n"
-                        f"- Temperature: {main['temp']}°C (feels like {main['feels_like']}°C)\n"
-                        f"- Humidity: {main['humidity']}%\n"
-                        f"- Wind: {wind['speed']} m/s"
-                    )
-            return "No weather data available for yesterday."
-        
-        else:  # For forecast data (e.g., tomorrow)
-            target_date = (datetime.now() + timedelta(days=1)).date()
-            for item in data.get("list", []):
-                if datetime.fromtimestamp(item["dt"]).date() == target_date:
-                    weather = item["weather"][0]
-                    main = item["main"]
-                    wind = item["wind"]
-                    
-                    return (
-                        f"Weather forecast for {data['city']['name']} tomorrow:\n"
-                        f"- Condition: {weather['description'].capitalize()}\n"
-                        f"- Temperature: {main['temp']}°C (feels like {main['feels_like']}°C)\n"
-                        f"- Humidity: {main['humidity']}%\n"
-                        f"- Wind: {wind['speed']} m/s"
-                    )
-            return "No forecast data available for tomorrow."
     def get_weather_tool(self, input_str: str) -> str:
-        """Tool function for the agent to get weather data"""
+        """Tool function with history and sentiment support"""
         parts = [p.strip() for p in input_str.split(",")]
         if len(parts) != 2:
-            return "Please specify both location and date (today or tomorrow)"
+            return "Please specify both location and date (today/tomorrow/yesterday)"
         
         location, date = parts
         date = date.lower()
         
-        if date not in ["today", "tomorrow","yesterday"]:
-            return "Date must be either 'today' or 'tomorrow'"
+        if date not in ["today", "tomorrow", "yesterday"]:
+            return "Date must be 'today', 'tomorrow', or 'yesterday'"
         
+        # Get weather data
         if date == "today":
-            data = self.get_current_weather(location)
+            data = WeatherFunctions.get_current_weather(location)
         elif date == "yesterday":
-            data = self.get_yesterdays_weather(location)
-        else:  # tomorrow
-            data = self.get_weather_forecast(location)
+            data = WeatherFunctions.get_yesterdays_weather(location)
+        else:
+            data = WeatherFunctions.get_weather_forecast(location)
         
-        return self.process_weather_data(data, date)
-    
+        response =WeatherFunctions.process_weather_data(data, date)
+        
+        # Save to database with sentiment analysis
+        self.db.save_query(input_str, response, location, date)
+        
+        return response
+    def extract_location_and_date(self, prompt: str) -> tuple:
+        """Extract location and date from the prompt"""
+        parts = [p.strip() for p in prompt.split(",")]
+        if len(parts) != 2:
+            return None, None
+        
+        location, date = parts
+        date = date.lower()
+        
+        if date not in ["today", "tomorrow", "yesterday"]:
+            return location, None
+        
+        return location, date
     def run(self, prompt: str) -> str:
-        """Run the agent with the given prompt"""
+        """Run agent with context from history and sentiment analysis"""
         try:
-            return self.agent.run(prompt)
+            # Get context from previous queries
+            context = self._get_context(prompt)
+            
+            # Add emoji based on sentiment
+            sentiment = TextBlob(prompt).sentiment
+            emoji = self._get_sentiment_emoji(sentiment.polarity)
+            
+            # Run the agent
+            if context:
+                enhanced_prompt = f"{context}\n\nUser: {prompt}"
+            else:
+                enhanced_prompt = prompt
+                
+            response = self.agent.run(enhanced_prompt)
+            
+            return f"{emoji} {response}"
+            
         except Exception as e:
-            return f"Sorry, I encountered an error: {str(e)}"
+            return f"⚠️ Error: {str(e)}"
+
+    def _get_context(self, prompt: str) -> str:
+        """Get relevant context from history"""
+        # Extract location from prompt
+        location = self._extract_location(prompt)
+        if not location:
+            return ""
+            
+        # Get recent queries about this location
+        history = self.db.get_recent_queries(location=location)
+        if not history:
+            return ""
+            
+        context = "Previous interactions about this location:\n"
+        for query in history:
+            context += f"- You asked: '{query[2]}' on {query[1]}\n"
+            context += f"  I responded: '{query[3]}'\n\n"
+            
+        return context
+
+    def _extract_location(self, text: str) -> str:
+        """Simple location extraction from text"""
+        # This is a basic implementation - consider using NER for better results
+        common_locations = ["New York", "London", "Paris"]  # Add your common locations
+        for loc in common_locations:
+            if loc.lower() in text.lower():
+                return loc
+        return ""
+
+    def _get_sentiment_emoji(self, score: float) -> str:
+        """Get emoji based on sentiment score"""
+        if score > 0.3:
+            return "😊"
+        elif score > 0.1:
+            return "🙂"
+        elif score < -0.3:
+            return "😠"
+        elif score < -0.1:
+            return "😕"
+        else:
+            return "😐"
