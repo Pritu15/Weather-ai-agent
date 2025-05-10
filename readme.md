@@ -24,7 +24,7 @@
 
 5. Run the application:
     ```bash
-    python app.py
+    streamlit run app.py
     ```
 
 6. Follow the on-screen instructions to interact with the Weather AI Agent.
