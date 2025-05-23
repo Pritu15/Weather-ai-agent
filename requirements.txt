@@ -6,6 +6,8 @@ langchain-google-genai
 google-generativeai
 textblob
 nltk
-
-
-    
+ElevenLabs
+fastapi
+uvicorn
+python-multipart
+elevenlabs
